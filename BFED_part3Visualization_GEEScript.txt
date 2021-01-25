@@ -1,0 +1,720 @@
+/*
+
+NASA DEVELOP Massachusetts Water Resources
+Spring 2020 Boston, MA Node
+Beaver-Flood Event Detector (B-FED) 
+Part III Visualization
+
+See Part III Visualization README for additional information.
+
+Date created: 03/27/2020
+
+Functionality of Script
+=================
+B-FED Tool Kit: 
+B-FED is a Google Earth Engine script that uses NASA Earth Observations, a MassGIS 
+wetland polygon layer, citizen science Global Biodiversity Information Facility (GBIF) Data 
+and remote sensing methodology to detect floodig events that are likely caused by beavers 
+in Massachusetts, USA. The objective of this kit is to have an algorithm with conditional 
+statements to determine for a given year if flooding, based on spectral signatures, caused 
+by beavers has occurred. This is then filtered for a wetland layer and then inlaid with citizen 
+science data of beaver observations from GBIF. The correlation of having flooding, 
+along with reported beaver observations acts as a validation for the tool. B-FED is divided into 
+three scripts.
+
+
+Part III Visualization: The final script in the tool kit displays flooding events 
+at annual time stamps in relation to beaver activity observations in Massachusetts 
+Audubon Sanctuaries and across Massachusetts.
+
+Outputs:
+1.Time Series Charts: prints group of pixels time series for TCG and TCB specified bands
+2.User Interface (UI): allows user to view potential flooding and other relevant information
+    a. Toggle layers: Satellite background provided by GEE, Wetlands layer, 
+       All potential flooding 1986-2019, Yearly potential flooding, Beaver activity 1999-2020
+    b. Displays legend & link to iNaturalist 
+    c. Animates yearly potential flooding
+    d. Beaver Activity Year: When users click on a beaver observation, displays the year observed and link to iNaturalist submission
+3.Time series visualizations 
+    a. Maps: Display flooding at one time and/or other layers
+    b. Gifs: Display potential flooding through time
+	
+How to Run Script:
+To obtain the outputs listed above, for the charts uncomment lines 273, 288,
+for the UI just click Run, for the time series visualizations 
+uncomment lines 708-716.
+
+Required Packages
+===================
+* Google Earth Engine API
+* users/gena/packages:animation
+* users/gena/packages:text
+
+Required Data Inputs 
+===================
+* TIGER: US Census States 2018
+* Public Asset from Liana_Stachowicz: 'users/liana_stachowicz/global_beaver_observations' 
+* Public Asset from Ahmed94: 'users/Ahmed94/TCB_1985_2019_ICollection'
+* Public Asset from Ahmed94: 'users/Ahmed94/TCG_1985_2019_ICollection'
+* Public Asset from valerie: 'projects/ee-valeriepasquarella/assets/Massachusetts_wetland_mask'
+* Public Asset from rlwcomposto: 'users/rlwcomposto/simplifiedMA'
+* Public Asset from rlwcomposto: 'users/rlwcomposto/MA_Flooding_nm_1986-2019'
+* Public Asset from rlwcomposto: 'users/rlwcomposto/MA_Flooding_wm_1986-2019'
+* Public Asset from rlwcomposto: 'users/rlwcomposto/Mass_Audubon_Shp'
+
+Contact
+===================
+Contributors: 
+Dr. Valerie Pasquarella - valpasq@bu.edu
+Ahmed Baqai - ahmedbaqai1994@gmail.com
+Rebecca Composto - rlwcomposto@gmail.com
+Adelaide Gonzalez- emilygonzalez2021@gmail.com
+Liana Stachowicz - lianastack6@gmail.com
+
+POC:
+Name: Ahmed Baqai
+E-mail address: Ahmedbaqai1994@gmail.com
+
+Notes
+===================
+
+*/
+
+// --------------------------------------------------------------------- 
+// IMPORT DATA
+// ---------------------------------------------------------------------
+
+// These collections were generated using 2_B-FED_analysis_v2 
+var FLOODING_NM = ee.ImageCollection("users/rlwcomposto/MA_Flooding_nm_1986-2019");
+var FLOODING_WM = ee.ImageCollection("users/rlwcomposto/MA_Flooding_wm_1986-2019");
+
+// These collections were generated using 1_B-FED_preprocessing_v2 
+var TCB_IC = ee.ImageCollection('users/Ahmed94/TCB_1985_2019_ICollection');  
+var TCG_IC = ee.ImageCollection('users/Ahmed94/TCG_1985_2019_ICollection');
+
+// this feature collection doesn't contain year the beavers were seen
+var BEAVER_OBS_VP = ee.FeatureCollection("projects/ee-valeriepasquarella/assets/Massachusetts_beaver_observations");
+// this feature collection does contain the year that the beavers were either seen
+var BEAVER_OBS_ALL = ee.FeatureCollection("users/liana_stachowicz/global_beaver_observations");  
+var BEAVER_OBS = BEAVER_OBS_ALL.filterMetadata('stateProvince', 'equals', 'Massachusetts');
+
+// Data obtained from MassGIS
+var WETLAND_MASK = ee.Image("projects/ee-valeriepasquarella/assets/Massachusetts_wetland_mask");  
+
+// Massachusetts simplified (1000) with a buffer (5000m)
+var ROI = ee.FeatureCollection("users/rlwcomposto/simplifiedMA");  
+
+// Data obtained from MassGIS, includes all properties that MAS owns
+var MAS_Sanctuaries = ee.FeatureCollection("users/rlwcomposto/Mass_Audubon_Shp");
+
+// To add additional Sanctuaries, copy the line below and change the name of the sanctuary
+var Ipswich = MAS_Sanctuaries.filter(ee.Filter.eq('SITE_NAME', 'Ipswich River Wildlife Sanctuary'));
+var Wachusett = MAS_Sanctuaries.filter(ee.Filter.eq('SITE_NAME', 'Wachusett Meadow Wildlife Sanctuary'));
+var Broadmoor = MAS_Sanctuaries.filter(ee.Filter.eq('SITE_NAME', 'Broadmoor Wildlife Sanctuary'));
+
+// Set center of UI around a MAS sanctuary
+var centerHere = Broadmoor;
+
+
+// MAKE GEOMETRIES -----------------------------------------------------
+var MA_big = 
+    /* color: #ff0000 */
+    /* shown: false */
+    ee.Geometry.Polygon(
+        [[[-74.06454807639388, 43.37688707664026],
+          [-74.06454807639388, 40.958933337894116],
+          [-69.50522190451888, 40.958933337894116],
+          [-69.50522190451888, 43.37688707664026]]], null, false),
+    ipswich_outlinec = 
+    /* color: #98ff00 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-70.95270892567783, 42.6593298814397],
+          [-70.95270892567783, 42.59744197885492],
+          [-70.87340136952548, 42.59744197885492],
+          [-70.87340136952548, 42.6593298814397]]], null, false),
+    ipswich_flood = 
+    /* color: #99ff99 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-70.92944701617112, 42.625282555766425],
+          [-70.92944701617112, 42.621493195786904],
+          [-70.92627128069749, 42.621493195786904],
+          [-70.92627128069749, 42.625282555766425]]], null, false),
+    wachusett_outlinec = 
+    /* color: #0b4a8b */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-71.94000388721722, 42.478447658328506],
+          [-71.94000388721722, 42.43500684990106],
+          [-71.87957908252972, 42.43500684990106],
+          [-71.87957908252972, 42.478447658328506]]], null, false),
+    wachusett_flood = 
+    /* color: #999900 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-71.9073535121432, 42.452407947902906],
+          [-71.9073535121432, 42.44987473006492],
+          [-71.90340530047328, 42.44987473006492],
+          [-71.90340530047328, 42.452407947902906]]], null, false),
+    broadmoor_outlinec = 
+    /* color: #00ff00 */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-71.36782951573045, 42.26758210763906],
+          [-71.36782951573045, 42.235562057330576],
+          [-71.3101512930742, 42.235562057330576],
+          [-71.3101512930742, 42.26758210763906]]], null, false),
+    broadmoor_flood = 
+    /* color: #0000ff */
+    /* shown: false */
+    /* displayProperties: [
+      {
+        "type": "rectangle"
+      }
+    ] */
+    ee.Geometry.Polygon(
+        [[[-71.34859573016078, 42.250628725835],
+          [-71.34859573016078, 42.24783322076816],
+          [-71.3444758571139, 42.24783322076816],
+          [-71.3444758571139, 42.250628725835]]], null, false),
+    geometry = 
+    /* color: #d63000 */
+    /* shown: false */
+    ee.Geometry.Point([-73.11043648371795, 42.90406902309323]);
+
+
+// --------------------------------------------------------------------- 
+// CREATE FUNCTIONS
+// ---------------------------------------------------------------------
+
+// Add a property of the year the beaver activity was observed to the feature collection
+var beaver_wy = BEAVER_OBS.map(function(feature) {
+  var YYYY = ee.Date(feature.get('eventDate')).format('YYYY');
+  return feature.set({year: YYYY});
+});
+
+// Function to convert images from Int to Float (proper value scaling /10000)
+var toFloat = function(image) {
+  var imageFloat = image.multiply(ee.Number(image.get('output_multiplier')));
+  return imageFloat.copyProperties(image, ['system:time_start','year', 'spectral_band']);
+};
+
+// Function to convert year to string for animation label
+var add_year = function(image) {
+  var year = ee.Image(image).get('year');
+  var year_s = ee.String(ee.Number(year).toInt());
+  // Set to new property
+  return image.set('year', year_s);
+};
+
+
+// --------------------------------------------------------------------- 
+// ANALYSIS FOR CHARTS
+// ---------------------------------------------------------------------
+
+// Convert image collections back to float from int
+var tcgFloat = TCG_IC.map(toFloat);
+var tcbFloat = TCB_IC.map(toFloat);
+
+// Get TCG range
+var tcgRange = tcgFloat.select("range");  // Select for band 8: "range"
+
+// Get TCB mean
+var tcbMean = tcbFloat.select('mean');  // Select for band 0: "mean"
+
+
+// --------------------------------------------------------------------- 
+// CREATE CHARTS
+// ---------------------------------------------------------------------
+
+// These charts are based off of small sections of flooding that occur 
+// within the 3 case study locations.
+// Uncomment print statements to print charts in the Console
+
+// TCG Chart on flooded pixels in case study area 
+var tcgChart = ui.Chart.image.series(tcgFloat.select(['min', 'max'])  // Change TCB calculation
+                .filterDate('1985-01-01', '2019-12-31'),  // Change dates 
+                ipswich_flood,  // Change area
+                ee.Reducer.mean(), 30)
+                .setOptions({
+                  title: 'Min and Max TCG Ipswich',  // Change title of chart
+                  hAxis: {'title': 'Year'},
+                  vAxis: {'title': 'Greenness'},
+                  // colors: [color],
+                  pointSize: 2,
+                  lineWidth: 2
+                }); 
+//print(tcgChart);
+
+// TCB Chart on flooded pixels in case study area
+var tcbChart = ui.Chart.image.series(tcbFloat.select("mean")  // Change TCB calculation
+                .filterDate('1985-01-01', '2019-12-31'),  // Change dates
+                ipswich_flood,  // Change area
+                ee.Reducer.mean(), 30)
+                .setOptions({
+                  title: 'Mean TCB Ipswich',  // Change title of chart
+                  hAxis: {'title': 'Year', gridlines: {count: 5}},
+                  vAxis: {'title': 'Brightness'},
+                  // colors: [color],
+                  pointSize: 2,
+                  lineWidth: 2
+}); 
+//print(tcbChart);
+
+
+
+// --------------------------------------------------------------------- 
+// LAYERS FOR UI & ANIMATIONS
+// ---------------------------------------------------------------------
+
+// If you change colors here, remember to change them in the Legend as well
+
+// Set beaver observation size and color
+var mass_obs2 = BEAVER_OBS.draw({color: 'ff790b', strokeWidth: 7});
+var mass_obs3 = BEAVER_OBS.draw({color: 'ff790b', strokeWidth: 1});
+
+// Set wetlands visualization parameters 
+var wetlandsViz = WETLAND_MASK.visualize({
+  palette: '98FB98',
+  opacity: 0.50
+});
+
+// Set flooding visualization parameters
+var comText = FLOODING_WM.map(function(img) {
+  var year = ee.Date(img.get('system:time_start')).format('YYYY');  // formats year for thumbnails 
+  return img.visualize({
+    palette: '00FFFF', 
+  }).set({label: year});
+});
+
+var comTextB = FLOODING_NM.map(function(img) {
+  var year = ee.Date(img.get('system:time_start')).format('YYYY');  // formats year for thumbnails 
+  return img.visualize({
+    palette: '00FFFF', 
+  }).set({label: year});
+});
+
+
+// Create flooding in wetlands layer for UI
+// Convert year to string for animation label
+var combined_wmy = FLOODING_WM.map(add_year);
+// Reduce to show all floods as single image
+var allFloods_wm = combined_wmy.reduce('max');
+// Apply visual parameters
+var allFloods_wmViz = allFloods_wm.visualize({
+    palette: 'blue'
+  });
+
+// Create total flooding for UI
+var combined_nmy = FLOODING_NM.map(add_year);
+var allFloods_nm = combined_nmy.reduce('max');
+var allFloods_nmViz = allFloods_nm.visualize({
+    palette: '00FFFF'
+});
+
+// Define an empty image to paint features to.
+var empty = ee.Image().byte();
+
+// Create MAS Sanctuary outlines
+var MAS_S = empty
+  .paint({featureCollection: MAS_Sanctuaries, color: 1, width: 2})
+  .visualize({palette: 'FF00FF'});
+  
+// Create ROI outline
+var maOutline = empty
+  .paint({featureCollection: ROI, color: 1, width: 2})
+  .visualize({palette: 'F0FF00'});
+
+
+// Create Sentinel Background Layer ------------------------------------------
+// Sentinel chosen over Landsat for the video because higher resolution
+
+// Define the visualization parameters for Sentinel background.
+var vizParamsS2 = {
+  bands: ['B4', 'B3', 'B2'], // R, G, B
+  min: 90,
+  max: 2000,
+  gamma: [0.95, 1.1, 1],
+  opacity: 0.50
+};
+
+// Import Sentinel data
+var imageS = ee.ImageCollection("COPERNICUS/S2")
+    .filter(ee.Filter.lt("CLOUDY_PIXEL_PERCENTAGE", 10))
+    .filterDate('2017-01-01','2017-12-31')  // Change year here
+    .filterBounds(MA_big);
+
+// Vizualize and clip Sentinel data
+var imageSm = imageS.median();
+var imageSmc = imageSm.clip(MA_big);
+var backgroundSentinel = imageSmc.visualize(vizParamsS2);
+
+
+// Create Landsat Background Layer --------------------------------------------
+// Lower resultion, but can get background for before 2017
+
+// Visual parameters and Landsat background for visualizing results
+var vizParams57 = {
+  bands: ['B3', 'B2', 'B1'],
+  min: 90,
+  max: 2000,
+  gamma: [0.95, 1.1, 1],
+  //opacity: 0.20
+};
+
+var vizParams8 = {
+  bands: ['B4', 'B3', 'B2'], // R, G, B
+  min: 90,
+  max: 2000,
+  gamma: [0.95, 1.1, 1],
+  //opacity: 0.20
+};
+
+// Import Landsat imagery, filter for clouds & ROI
+var b1 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR').filterBounds(MA_big)
+  .filterDate('1985-01-01', '1985-12-31').filter(ee.Filter.lt('CLOUD_COVER_LAND', 5));
+b1 = b1.median().clip(MA_big);
+b1 = b1.visualize(vizParams57);
+var background1985 = b1.set({year: '1985'});
+
+var b2 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR').filterBounds(MA_big)
+  .filterDate('1995-01-01', '1995-12-31').filter(ee.Filter.lt('CLOUD_COVER_LAND', 10));
+b2 = b2.median().clip(MA_big);
+b2 = b2.visualize(vizParams57);
+var background1995 = b2.set({year: '1995'});
+
+var b3 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR').filterBounds(ROI)
+  .filterDate('2006-01-01', '2006-12-31').filter(ee.Filter.lt('CLOUD_COVER_LAND', 5));
+b3 = b3.median().clip(ROI);
+b3 = b3.visualize(vizParams57);
+var background2006 = b3.set({year: '2006'});
+
+var b4 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR').filterBounds(ROI)
+  .filterDate('2015-01-01', '2015-12-31').filter(ee.Filter.lt('CLOUD_COVER_LAND', 10));
+b4 = b4.median().clip(ROI);
+b4 = b4.visualize(vizParams8);
+var background2015 = b4.set({year: '2015'});
+
+
+// --------------------------------------------------------------------- 
+// UI
+// ---------------------------------------------------------------------
+
+// Uncomment animation (lines X to Y) to produce animation
+
+// Import animation package and set parameters 
+var animation = require('users/gena/packages:animation');
+animation.animate(combined_wmy, {
+  vis: {palette: 'cyan'},
+  position: "bottom-left",
+  maxFrames: 50,
+  width: "500px",
+  label: "year",
+  timeStep: 1000
+});
+
+// Create beaver year panel
+var beaverPanel = ui.Panel({
+    style: {
+      //height: '50px',
+      //width: '100px',
+      position: 'top-center',
+      padding: '8px 8px'
+      //textAlign: 'left',
+      //backgroundColor: 'rgba(255, 255, 255, 0.7)'
+    }
+  });
+
+Map.style().set({cursor:'crosshair'});
+
+// Set a callback function for when the user clicks the map.
+// When user clicks on a beaver observation, the year with a link to iNat observation will display
+var dirtyMap = false;
+Map.onClick(function(coords) {
+  if(dirtyMap === false){
+    Map.add(beaverPanel);
+    dirtyMap = true;
+  }
+  
+  beaverPanel.clear();
+  
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  
+  // buffers the click to overlap with beaver observation
+  var circle = point.buffer(40, 5);  
+  
+  // add circle to display where the user clicked
+  Map.layers().set(1, ui.Map.Layer(circle, {color: 'white', opacity: 0.70}, 'Clicked observation'));
+  
+  var bo =  beaver_wy.filterBounds(circle).first();
+  
+  // Future code could show user which beaver observation they selected
+  //map.layers().set(1, ui.Map.Layer(bo, {color: 'white', opacity: 0.50}, 'Clicked observation'));
+  
+  var text = bo.get('year');
+  var link = bo.get('occurrenceID');
+  
+  var label1 = ui.Label({
+    value: "Loading...",  //Displays while the year is being found
+    style: {
+        //fontWeight: 'bold',
+        fontSize: '14px',
+        fontFamily: 'Impact',
+        margin: '0 0 8px 0',
+        padding: '0'}});
+  
+  // Add year and link of beaver observation to UI
+  text.evaluate(function(string){label1.setValue('Beaver Activity: ' + string)});
+  link.evaluate(function(link){label1.setUrl(link)});
+  
+  beaverPanel.add(label1);
+  
+  // Future code can add conditional statement to only print the year when it is "defined"
+  // therefore eliminating the panel printing "undefined" when the click is no where near a beaver observation
+  // if(beaverObs !== null) {
+  //   beaverPanel.add(ui.Label(text));
+  // }
+  
+});
+
+
+// Function to create and style 1 row of the legend.
+var makeRow = function(color, name) {
+  // Create the label that is actually the colored box.
+  var colorBox = ui.Label({
+    style: {
+      backgroundColor: '#' + color,
+      // Use padding to give the box height and width.
+      padding: '8px',
+      margin: '0 0 4px 0'
+    }
+  });
+
+  // Create the label filled with the description text.
+  var description = ui.Label({
+    value: name,
+    style: {margin: '0 0 4px 6px'}
+  });
+
+  return ui.Panel({
+    widgets: [colorBox, description],
+    layout: ui.Panel.Layout.Flow('horizontal')
+  });
+};
+
+// Create panel to with text & link so user can learn more about inaturalist
+var link =  ui.Panel({
+  style: {
+    position: 'middle-right',
+    padding: '8px 15px'
+  }}).add(ui.Label({
+      value: 'Please submit signs of beaver activity here',  // Change text
+      style: {
+        //fontWeight: 'bold',
+        fontSize: '12px',
+        fontFamily: 'Impact',
+        margin: '0 0 8px 0',
+        padding: '0'},
+      targetUrl: 'https://www.inaturalist.org/observations?place_id=2&taxon_id=43791'}));
+
+// Create the panel for the legend items.
+var legend =  ui.Panel({
+  style: {
+    position: 'bottom-right',
+    padding: '8px 15px'
+  }
+});
+
+// Set legend title.
+var legendTitle = ui.Label({
+  value: 'Beaver Flood Event Detector (B-FED) Tool',
+  style: {
+    fontWeight: 'bold',
+    fontSize: '16px',
+    fontFamily: 'Impact',
+    margin: '0 0 8px 0',
+    padding: '0'
+  }
+});
+
+// Add pieces to the legend
+legend.add(legendTitle);
+legend.add(makeRow('00FFFF', "Potential flood events by year"));
+legend.add(makeRow("0000FF", "All potential flood events 1986-2019"));
+legend.add(makeRow("ff790b", "Beaver Activity 1999-2020"));
+legend.add(makeRow('98FB98', "Wetlands 2005"));
+legend.add(makeRow('FF00FF', "Massachusetts Audubon Society Properties"));
+
+// Add layers that are displayed in the UI
+// Change true to false for layer not to be displayed, user can still toggle it on
+Map.addLayer(wetlandsViz, {}, 'Wetlands Vector', true);
+Map.addLayer(maOutline, {}, "ROI", true);
+Map.addLayer(allFloods_wmViz, {}, 'All Flooded', true);
+Map.addLayer(MAS_S, {}, 'Mass Audubon Sanctuary Sanctuaries', true);
+Map.addLayer(mass_obs2, {}, "Beaver Observations", true);
+
+Map.setOptions('SATELLITE');  // Set satellite background as default
+
+Map.centerObject(centerHere, 14);
+
+Map.add(legend);
+Map.add(link);
+
+// --------------------------------------------------------------------- 
+// Time Series
+// ---------------------------------------------------------------------
+
+// Uncomment print statements (X to Y) to print gifs in the Console
+
+// Import package to add text to thumbnails
+var text = require('users/gena/packages:text');
+
+// Define ui.Thumbnail video arguments
+var videoArgsIpswich = {
+  dimensions: 720,
+  region: ipswich_outlinec,
+  framesPerSecond: 3,
+};
+
+var videoArgsWachusett = {
+  dimensions: 720,
+  region: wachusett_outlinec,
+  framesPerSecond: 3,
+};
+
+var videoArgsBroadmoor = {
+  dimensions: 720,
+  region: broadmoor_outlinec,
+  framesPerSecond: 3,
+};
+
+var videoArgsMA = {
+  dimensions: 720,
+  region: MA_big,
+  framesPerSecond: 3,
+};
+
+// Set properties and size of text in thumbnails
+var annotations = [
+  {position: 'left', offset: '1%', margin: '1%', property: 'label', scale: Map.getScale() * 7}
+];
+
+var annotationsMA = [
+  {position: 'left', offset: '1%', margin: '1%', property: 'label', scale: Map.getScale() * 10}
+];
+
+
+// Set location of text in the thumbnails
+// Sometimes text will not show up if the point is too close to the boarder (or for some other reason)
+var geometryIps = ee.Geometry.Point([-70.94334279530617, 42.65342641923555]);
+var comTextIps = comText.map(function(img) {
+  return text.annotateImage(img, {}, geometryIps, annotations);
+});
+
+var geometryWa = ee.Geometry.Point([-71.93576695376352, 42.47514269273204]);
+var comTextWa = comText.map(function(img) {
+  return text.annotateImage(img, {}, geometryWa, annotations);
+});
+
+var geometryBro = ee.Geometry.Point([-71.36181904750161, 42.26344710514955]);
+var comTextBro = comText.map(function(img) {
+  return text.annotateImage(img, {}, geometryBro, annotations);
+});
+
+var geometryMA = ee.Geometry.Point([-73.6717761190626, 43.15432024270143]);
+var geometryMA2 = ee.Geometry.Point([-73.11043648371795, 42.90406902309323]);
+var comTextMA = comText.map(function(img) {
+  return text.annotateImage(img, {}, geometryMA2, annotationsMA);
+});
+
+
+// Future code could link yearly Landsat composite imagery as background imagery 
+// to the yearly flooding imagery
+// Steps: make an image collection of composite Landsat imagery, then iterate
+// through flooding and background imagery and match both by year
+
+
+// Blend layers together to display different combination of maps & gifs/thumbnails
+// Layer options: background1995, backgroundSentinel, MAS_S, mass_obs2, mass_obs3, maOutline, wetlandsViz
+// Layer options cont: allFloods_nmViz, allFloods_wmViz
+
+// For making stills and not thumbnails, uncomment below and add combine layers
+// var mapMass = backgroundSentinel.blend(maOutline).blend(wetlandsViz)blend(allFloods_wmViz);
+// print(ui.Thumbnail(mapMass, videoArgsMA));
+
+var timeIpsS = comTextIps.map(function(img) {
+  return backgroundSentinel.blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeIpsL = comTextIps.map(function(img) {
+   return background1995.blend(wetlandsViz).blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeWaS = comTextWa.map(function(img) {
+  return backgroundSentinel.blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeWaL = comTextWa.map(function(img) {
+  return background1995.blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeBroS = comTextBro.map(function(img) {
+  return backgroundSentinel.blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeBroL = comTextBro.map(function(img) {
+  return background1995.blend(img).blend(MAS_S).blend(mass_obs2);
+});
+
+var timeMAS = comTextMA.map(function(img) { 
+  return backgroundSentinel.blend(img).blend(mass_obs3).blend(maOutline);
+});
+
+var timeMAL = comTextMA.map(function(img) { 
+  return background1995.blend(img).blend(mass_obs3).blend(maOutline);
+});
+
+
+
+// Display animations
+// Uncomment print statements (X to Y) to print gifs in the Console
+
+//print(ui.Thumbnail(timeIpsS, videoArgsIpswich)); //works
+//print(timeIps.getFilmstripThumbURL(videoArgsIpswich));
+//print("Ipswich Timeseries: " + timeIpsS.getVideoThumbURL(videoArgsIpswich));
+//print(ui.Thumbnail(timeWaS, videoArgsWachusett));
+//print("Wachusett Timeseries: " + timeWaS.getVideoThumbURL(videoArgsWachusett));
+//print(ui.Thumbnail(timeBroS, videoArgsBroadmoor));
+//print("Broadmoor Timeseries: " + timeBroS.getVideoThumbURL(videoArgsBroadmoor));
+//print(ui.Thumbnail(timeMAS, videoArgsMA));
+//print("MA Timeseries: " + timeMA.getVideoThumbURL(videoArgsMA));
+
+
+
+
