@@ -1,0 +1,321 @@
+/*
+
+NASA DEVELOP Massachusetts Water Resources
+Spring 2020 Boston, MA Node
+Beaver-Flood Event Detector (B-FED) 
+Part II Analysis
+
+See Part II Analysis README for additional information.
+
+Date created: 03/24/2020
+
+Functionality of Script
+=================
+B-FED Tool Kit: 
+B-FED is a Google Earth Engine script that uses NASA Earth Observations, a MassGIS 
+wetland polygon layer, citizen science Global Biodiversity Information Facility (GBIF) Data 
+and remote sensing methodology to detect floodig events that are likely caused by beavers 
+in Massachusetts, USA. The objective of this kit is to have an algorithm with conditional 
+statements to determine for a given year if flooding, based on spectral signatures, caused 
+by beavers has occurred. This is then filtered for a wetland layer and then inlaid with citizen 
+science data of beaver observations from GBIF. The correlation of having flooding, 
+along with reported beaver observations acts as a validation for the tool. B-FED is divided into 
+three scripts.
+
+Part II Analysis: This script calculates TCG range (normalized to a reference year) and 
+TCB mean cumulative sum. It then applies an algorithm (that can be manipulated) to these 
+components, which detects flooded pixels. Then there is an option of only selecting flooded 
+pixels that occur in wetlands as defined by MassGIS in 2005.
+
+
+Outputs:
+1.	Potential Flooding- No Wetlands Mask: Apply algorithm to TC components 
+    to create potential flooding layer & export
+2.	Potential Flooding- With Wetlands Mask: Apply algorithm to TC components 
+    to create potential flooding layer, filter to create layer with only potential 
+    flooding in wetland areas & export
+
+How To Run Script:
+To obtain the outputs listed above, make the variable names (lines 89 and 90)
+equal to 1. Then the output will be executed and the exported layer will appear in the task tab.
+Click the run button next to the asset, this will take a few seconds, then press upload, 
+This might take several hours and can be left to run over night. Once it is complete, 
+in the Assets tab, click refresh. Then click New, then click Image Collection and click 
+and drag layers to the new Image Collection. 
+
+Required Packages
+===================
+* Google Earth Engine API
+
+Required Data Inputs 
+===================
+* TIGER: US Census States 2018
+* Public Asset from Liana_Stachowicz: Global Beaver Observations 
+* Public Asset from Ahmed94: TCB_1985_2019_ICollection
+        Link: https://code.earthengine.google.com/?asset=users/Ahmed94/TCB_1985_2019_ICollection
+* Public Asset from Ahmed94: TCG_1985_2019_ICollection
+        Link: https://code.earthengine.google.com/?asset=users/Ahmed94/TCG_1985_2019_ICollection
+* Public Asset from Ahmed94: users/Ahmed94/massBeaverObv  (Mass Beaver Observations)
+        Link: https://code.earthengine.google.com/?asset=users/Ahmed94/massBeaverObv
+* Public Asset from rlwcomposto "users/rlwcomposto/simplifiedMA" (Simplified Massachussets Layer)
+
+Contact
+===================
+Contributors: 
+Dr. Valerie Pasquarella - valpasq@bu.edu
+Ahmed Baqai - ahmedbaqai1994@gmail.com
+Rebecca Composto - rlwcomposto@gmail.com
+Adelaide Gonzalez- emilygonzalez2021@gmail.com
+Liana Stachowicz - lianastack6@gmail.com
+
+POC:
+Name: Ahmed Baqai
+E-mail address: Ahmedbaqai1994@gmail.com
+
+Notes
+===================
+This code is based off of Dr. Pasquarella's 2_B-FED_analysis code
+The change is exporting the results to feature collections use if statements.
+
+*/
+
+
+
+// --------------------------------------------------------------------- 
+// IMPORT DATA & SET VARIABLES
+// ---------------------------------------------------------------------
+
+// Toggle numbers to export assets
+var TC_NM_EXPORT = 0;  // if = 1, generate export task(s)
+var TC_WM_EXPORT = 0;
+
+// Variables used for naming exports
+var DEPENDENT_NM = 'Flooding_nm'; 
+var DEPENDENT_WM = 'Flooding_wm';
+var STATE_NAME = 'Massachusetts';
+
+// Import data
+// data obtained from MASS GIS wetlands layer
+var WETLAND_MASK = ee.Image("projects/ee-valeriepasquarella/assets/Massachusetts_wetland_mask");  
+// this collection was generated using 1_B-FED_preprocessing_v2
+var TCB_IC = ee.ImageCollection('users/Ahmed94/TCB_1985_2019_ICollection');  
+var TCG_IC = ee.ImageCollection('users/Ahmed94/TCG_1985_2019_ICollection');
+
+// Set years for exporting images, to export just one year, set it as the start and end
+var START_YEAR = 2016; 
+var END_YEAR = 2016;
+
+// Set thresholds and reference year
+var TCB_THRESH = -0.05;  
+var TCG_REF_YEAR = 1985;  // Select reference year for normalizing TCG range data
+var TCG_PERC_THRESH = 0.70;
+
+
+// --------------------------------------------------------------------- 
+// CREATE FUNCTIONS
+// ---------------------------------------------------------------------
+
+// Function to convert images from Int to Float (proper value scaling /10000)
+var toFloat = function(image) {
+  var imageFloat = image.multiply(ee.Number(image.get('output_multiplier')));
+  return imageFloat.copyProperties(image, ['system:time_start','year', 'spectral_band']);
+};
+
+// Function to calculate cumulative sum
+var cumsum = function(image, list) {
+  var previous = ee.Image(ee.List(list).get(-1));//.toFloat();   
+  var sum = image.add(previous)
+        .copyProperties(image, ["system:time_start", "year", "spectral_band"]);  // Propagate metadata
+  return ee.List(list).add(sum);  // Return the list with the cumulative differences
+};
+
+// Function masking images that are less than threshold
+var tcbApplyMask = function(image) {
+  return image.updateMask(image.lt(TCB_THRESH)).rename('mask')
+     .copyProperties(image, ["system:time_start", "year", "spectral_band"]); 
+};
+
+// Function masking images that are less than threshold
+var tcgApplyMask = function(image) {
+  return image.updateMask(image.lt(TCG_PERC_THRESH)).rename('mask')
+    .copyProperties(image, ["system:time_start", "year", "spectral_band"]);
+};
+
+// Function to convert year to string for animation label
+var add_year = function(image) {
+  var year = ee.Image(image).get('year');
+  var year_s = ee.String(ee.Number(year).toInt());
+  // Set to new property
+  return image.set('year', year_s);
+};
+
+
+// --------------------------------------------------------------------- 
+// ANALYSIS
+// ---------------------------------------------------------------------
+
+// Convert image collections back to float from int
+var tcgFloat = TCG_IC.map(toFloat);
+var tcbFloat = TCB_IC.map(toFloat);
+
+// Get TCG range
+var tcgRange = tcgFloat.select("range");  // Select for band 8: "range"
+
+// Select reference year image for normalization
+var tcgRef = tcgRange.filterMetadata('year', 'equals', TCG_REF_YEAR).first();  
+
+// Normalize range by dividing image collection by the reference year
+var tcgNormalized = tcgRange.map(function(image) {
+    return image.divide(tcgRef)
+     .copyProperties(image, ["system:time_start", "year", "spectral_band"]);  // Copy the date metadata over to the images in the new collection.  
+});  
+
+// Mask based on spectral threshold
+var tcgMask = tcgNormalized.map(tcgApplyMask);
+
+// Get TCB mean
+var tcbMean = tcbFloat.select('mean');  // Select for band 0: "mean"
+
+// List of TCB images
+var tcbList = tcbMean.sort('system:time_start').toList(tcbMean.size());
+
+// Calculate "backward" gradient, i.e. Tn+1 - Tn. 
+var tcbDiff = ee.ImageCollection.fromImages(tcbList.slice(0,-1)
+  .zip(tcbList.slice(1))
+  .map(function(f) { 
+    return ee.Image(ee.List(f).get(1)).subtract(ee.Image(ee.List(f).get(0)))
+      .copyProperties(ee.Image(ee.List(f).get(1)), ["system:time_start", "year", "spectral_band"]);
+   }));
+   
+// Get the timestamp from first image in the reference collection.
+var time0 = tcbDiff.first().get('system:time_start');  
+
+// Create the initial value for iterate() is a list of anomaly images already processed.
+var first = ee.List([ee.Image(0).select([0], ['mean'])
+]);  // The first anomaly image in the list is just 0, with the time0 timestamp.
+
+// Iterate cumsum function over TCB mean to sum differences over years
+var tcbCS = ee.ImageCollection(ee.List(tcbDiff.iterate(cumsum, first)));
+
+// Apply mask
+var tcbCMask = tcbCS.map(tcbApplyMask);
+
+// Create list of years from difference collection
+var yearsList = ee.List(tcbDiff.aggregate_array('year'));
+
+
+// --------------------------------------------------------------------- 
+// FINDING FLOODING: NO WETLANDS MASK
+// ---------------------------------------------------------------------
+
+// Map over years to combine TCB and TCG masks
+var combined_nm = ee.ImageCollection.fromImages(yearsList.map(function(year) {
+  var tcgR = tcgMask.filterMetadata('year', 'equals', year).first();
+  var tcbCS = tcbCMask.filterMetadata('year', 'equals', year).first();
+
+  return tcbCS.and(tcgR)
+    .copyProperties(tcgR, ["system:time_start", "year"]); 
+}));
+
+// Convert year to string for animation label
+var combined_nm_yr = combined_nm.map(add_year);
+//print('Final result No mask:', combined_nm);
+
+// Reduce to show all floods as single image
+var allFloods_nm = combined_nm_yr.reduce('max');
+
+// Display Results
+Map.addLayer(allFloods_nm, {palette: 'blue'}, 'All Flood Events, NO wetlands mask', false);
+
+
+// --------------------------------------------------------------------- 
+// FIND FLOODING: WITH WETLANDS MASK
+// ---------------------------------------------------------------------
+
+// Map over years to combine TCB and TCG masks
+var combined_wm = ee.ImageCollection.fromImages(yearsList.map(function(year) {
+  var tcgR = tcgMask.filterMetadata('year', 'equals', year).first();
+  var tcbCS = tcbCMask.filterMetadata('year', 'equals', year).first();
+
+  return tcbCS.and(tcgR).updateMask(WETLAND_MASK) // apply wetland mask here
+    .copyProperties(tcgR, ["system:time_start", "year"]); 
+}));
+
+// Convert year to string for animation label
+var combined_wm_yr = combined_wm.map(add_year);
+//print('Final result with Mask:', combined_wm);
+
+// Reduce to show all floods as single image
+var allFloods_wm = combined_wm_yr.reduce('max');
+
+// Display Results
+Map.addLayer(WETLAND_MASK, {palette: 'white'}, 'Wetlands', false, 0.50);
+Map.addLayer(allFloods_wm, {palette: 'blue'}, 'All Flood Events with Wetlands Mask', false);
+
+// --------------------------------------------------------------------- 
+// EXPORT ASSETS
+// ---------------------------------------------------------------------
+
+// Export detected flooding events, no wetlands mask applied
+if(TC_NM_EXPORT == 1) {
+
+  // For loop for iterating through years
+  for(var YEAR = START_YEAR; YEAR < END_YEAR+1; YEAR++){
+    
+    // Generate output description & id
+    var descrip = DEPENDENT_NM + '_' + YEAR;
+    var id = STATE_NAME + '_' + DEPENDENT_NM + '_' + YEAR;
+    
+    var combined_nm_f = combined_nm.filterMetadata('year', 'equals', YEAR).first();
+ 
+    // Export to Asset
+    Export.image.toAsset({
+      image: combined_nm_f,
+      description: descrip,
+      assetId: id,
+      region: combined_nm_f.geometry(), 
+      // crs: 'EPSG:5070',
+      scale: 30,
+      maxPixels: 1e13,
+    });
+  
+  } // close year loop
+}  
+
+
+// Export detected flooding events, no wetlands mask applied
+if(TC_WM_EXPORT == 1) {
+  
+  // For loop for iterating through years
+  for(var YEAR = START_YEAR; YEAR < END_YEAR+1; YEAR++){
+    
+    // Generate output description & id
+    var descrip = DEPENDENT_WM + '_' + YEAR;
+    var id = STATE_NAME + '_' + DEPENDENT_WM + '_' + YEAR;
+    
+    var combined_wm_f = combined_wm.filterMetadata('year', 'equals', YEAR).first();
+    
+    // Export to Asset
+    Export.image.toAsset({
+      image: combined_wm_f,
+      description: descrip,
+      assetId: id,
+      region: combined_wm_f.geometry(), 
+      // crs: 'EPSG:5070',
+      scale: 30,
+      maxPixels: 1e13,
+    });
+  
+  } // close year loop
+}  
+
+
+
+
+
+
+
+
+
+
+
