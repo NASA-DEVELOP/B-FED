@@ -1,0 +1,451 @@
+/*
+
+NASA DEVELOP Massachusetts Water Resources
+Spring 2020 Boston, MA Node
+Beaver-Flood Event Detector (B-FED) Tool Kit
+Part I Preprocessing
+
+See Part I Preprocessing README for additional information.
+
+Date created: 03/18/2020
+
+Functionality of Script
+=================
+
+B-FED Tool Kit: 
+B-FED is a Google Earth Engine script that uses NASA Earth Observations, a MassGIS 
+wetland polygon layer, citizen science Global Biodiversity Information Facility (GBIF) Data 
+and remote sensing methodology to detect floodig events that are likely caused by beavers 
+in Massachusetts, USA. The objective of this kit is to have an algorithm with conditional 
+statements to determine for a given year if flooding, based on spectral signatures, caused 
+by beavers has occurred. This is then filtered for a wetland layer and then inlaid with citizen 
+science data of beaver observations from GBIF. The correlation of having flooding, 
+along with reported beaver observations acts as a validation for the tool. B-FED is divided into 
+three scripts.
+
+Part I Preprocessing: This script filters for our study area,incorporates wetlands layer, 
+ingests citizen science beaver observations data, preprocess Landsat imagery, and generates 
+Tasseled Cap components: Tassled Cap Brightness (TCB) & Tassled Cap Greeness(TCG) for our alogrithm.
+The end products of this script are exported as assets, and are imported into the second script, 
+Part II Analysis.
+
+Outputs:
+1.	Tasseled Cap Components: Apply Crist 1985 tasseled cap coefficients to Landsat bands 
+to create tasseled cap components (Tasseled Cap Greenness (TCG), Tasseled Cap Brightness (TCB), 
+Tasseled Cap Wetness (TCW)) for the region of interest & export.
+2.	Beaver Observations: filter by state & export
+3.	Wetlands Layer: simplify & export
+4.	Region of Interest (ROI): simplify boundary of state & export
+
+How To Run Script:
+To obtain the outputs listed above, make the variable name equal to 1.
+Then the output will be executed and the exported layer will appear in the task tab.
+Click the run button next to the asset, this will take a few seconds, then press upload, 
+This might take several hours and can be left to run over night. Once it is complete, 
+in the Assets tab, click refresh. Then click New, then click Image Collection and click 
+and drag layers to the new Image Collection. 
+
+
+
+Required Packages 
+=================
+* Google Earth Engine API
+
+
+Required Data Inputs 
+====================
+* TIGER: US Census States 2018 dataset (TIGER/2018/States)
+* wrs2: World Reference System
+* USGS/NASA's Landsat 5 surface reflectance tier 1 dataset (January 1, 1985 - October 31, 2011)
+* USGS/NASA's Landsat 7 surface reflectance tier 1 dataset (Nov 01, 2011 - April 10, 2013)
+* USGS/NASA's Landsat 8 surface reflectance tier 1 dataset (April 11, 2013 - Dec 31, 2020)
+* GBIF MASS Beaver Observations Public Asset: users/liana_stachowicz/global_beaver_observations
+* MassGIS Data: MassDep Wetlands (2005): users/rlwcomposto/wetlands_ma_poly 
+(link to wetlands data: https://docs.digital.mass.gov/dataset/massgis-data-massdep-wetlands-2005)
+
+Contact
+===================
+Contributors: 
+Dr. Valerie Pasquarella - valpasq@bu.edu
+Ahmed Baqai - ahmedbaqai1994@gmail.com
+Rebecca Composto - rlwcomposto@gmail.com
+Adelaide Gonzalez- emilygonzalez2021@gmail.com
+Liana Stachowicz - lianastack6@gmail.com
+
+POC:
+Name: Ahmed Baqai
+E-mail address: Ahmedbaqai1994@gmail.com
+
+
+*/
+
+
+
+
+// --------------------------------------------------------------------- 
+// UPLOAD DATA SETS
+// ---------------------------------------------------------------------
+
+// Upload beaver observations from GBIF
+var BEAVER_OBS = ee.FeatureCollection('users/liana_stachowicz/global_beaver_observations');
+// Upload wetlands polygon layer from MassGIS
+var WETLANDS = ee.FeatureCollection('users/rlwcomposto/wetlands_ma_poly');
+
+var wrs2 = ee.FeatureCollection("projects/google/wrs2_descending");
+var states = ee.FeatureCollection("TIGER/2018/States");
+
+
+// --------------------------------------------------------------------- 
+// PRE-PROCESSING
+// ---------------------------------------------------------------------
+
+var FEATURES_EXPORT = 0; // if = 1, generate export task(s)
+var BEAVER_EXPORT = 0;   
+var WETLANDS_EXPORT = 0;
+var ROI_EXPORT = 0;
+
+// Specify state for ROI (full name)
+var STATE_NAME = 'Massachusetts';
+
+// Generate annual spectral-temporal feature sets
+var DEPENDENT = 'TCG';  // Options: 'TCB', 'TCG', 'TCW'
+var START_YEAR = 1985;
+var END_YEAR = 2019;
+
+// Global variables for Landsat processing
+// Band mapping for legacy re-naming.
+var L8_BANDS = ['B2', 'B3', 'B4', 'B5',  'B6',  'B7', 'B10']; // Landsat OLI bands
+var L457_BANDS = ['B1', 'B2', 'B3', 'B4',  'B5',  'B7', 'B6']; // Landsat TM/ETM+ bands
+var LTS_NAMES = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2', 'temp']; // Common names
+
+var MULTIPLIER = 10000; // To convert to int
+
+// --------------------------------------------------------------------- 
+// FUNCTIONS
+// ---------------------------------------------------------------------
+
+// Function to apply spectral transforms
+function spectralTransforms(img){
+  // make sure index string in upper case
+  var index = DEPENDENT.toUpperCase();
+  
+    // Set up dictionary using band name keys.
+  var dict = {
+    blue: img.select("blue").divide(10000),
+    green: img.select("green").divide(10000), // moved divide here
+    red: img.select("red").divide(10000),
+    nir: img.select("nir").divide(10000),
+    swir1: img.select("swir1").divide(10000),
+    swir2: img.select("swir2").divide(10000),
+  };
+  
+  var indexImg;
+  switch (index){
+    case 'TCB':
+      indexImg = img.expression("0.2043*blue + 0.4158*green + 0.5524*red + 0.5741*nir + 0.3124*swir1 + 0.2303*swir2", dict)
+        .rename("tcb");
+      break;
+      
+    case 'TCG':
+      indexImg = img.expression("-0.1603*blue - 0.2819*green - 0.4934*red + 0.7940*nir - 0.0002*swir1 - 0.1446*swir2", dict)
+        .rename("tcg");
+      break;
+      
+    case 'TCW':
+      indexImg = img.expression("0.0315*blue + 0.2021*green + 0.3102*red + 0.1594*nir - 0.6806*swir1 - 0.6109*swir2", dict)
+        .rename("tcw");
+      break;
+
+    default:
+      print('The index you provided is not supported');
+  }
+
+  return indexImg
+    .copyProperties(img, ["system:time_start", "WRS_PATH", "WRS_ROW"]);
+}
+
+//  Function to apply Fmask QA for Landsat 4, 5 and 7.
+var preprocess457 = function(image) {
+  var mask1 = image.select(['pixel_qa']).eq(66) // Clear land
+              .or(image.select(['pixel_qa']).eq(68)); // Clear water
+  var mask2 = image.mask().reduce('min');
+  var mask3 = image.select(['B1', 'B2', 'B3', 'B4',  'B5',  'B7']).gt(0).and(
+            image.select(['B1', 'B2', 'B3', 'B4',  'B5',  'B7']).lt(10000))
+            .reduce('min');
+  
+  return image.updateMask(mask1.and(mask2).and(mask3))
+    .select(L457_BANDS).rename(LTS_NAMES)
+    .copyProperties(image, ["system:time_start", "WRS_PATH", "WRS_ROW"]);
+};
+
+// Function to apply Fmask QA for Landsat 8.
+var preprocess8 = function(image) {
+  var mask1 = image.select(['pixel_qa']).eq(322) // Clear land
+              .or(image.select(['pixel_qa']).eq(324)); // Clear water
+  var mask2 = image.mask().reduce('min');
+  var mask3 = image.select(['B2', 'B3', 'B4', 'B5',  'B6',  'B7']).gt(0).and(
+            image.select(['B2', 'B3', 'B4', 'B5',  'B6',  'B7']).lt(10000))
+            .reduce('min');
+               
+  return image.updateMask(mask1.and(mask2).and(mask3))
+      .select(L8_BANDS).rename(LTS_NAMES) // Map legacy band names
+      .copyProperties(image, ["system:time_start", "WRS_PATH", "WRS_ROW"]);
+};
+
+
+// Functions to mask using a simple image-based cloud score 
+var cloudScore = function(image) {
+  // A helper to apply an expression and linearly rescale the output.
+  var rescale = function(image, exp, thresholds) {
+    return image.expression(exp, {image: image})
+        .divide(10000) // need to divide by 10000 (SR)
+        .subtract(thresholds[0]).divide(thresholds[1] - thresholds[0]);
+  };
+
+  // Compute several indicators of cloudyness and take the minimum of them.
+  var score = ee.Image(1.0);
+  
+  // Clouds are reasonably bright in the blue band.
+  score = score.min(rescale(image, 'image.blue', [0.1, 0.3]));
+
+  // Clouds are reasonably bright in all visible bands.
+  score = score.min(rescale(image, 'image.red + image.green + image.blue', [0.2, 0.8]));
+
+  // Clouds are reasonably bright in all infrared bands.
+  score = score.min(
+      rescale(image, 'image.nir + image.swir1 + image.swir2', [0.3, 0.8]));
+
+  // Clouds are reasonably cool in temperature.
+  score = score.min(rescale(image, 'image.temp', [300, 290]));
+
+  // However, clouds are not snow.
+  var ndsi = image.normalizedDifference(['green', 'swir1']);
+  return score.min(rescale(ndsi, 'image', [0.8, 0.6]));
+
+}; 
+
+// Add cloudscore band
+function addCloudScore(image) {
+      // Invert the cloudscore so 1 is least cloudy, and rename the band.
+      var score = cloudScore(image.select(LTS_NAMES));
+      score = ee.Image(1).subtract(score).select([0], ['cloudscore']);
+      return image.addBands(score);
+// REF: https://gis.stackexchange.com/questions/280400/
+// cloud-cover-percentage-in-google-earth-engine 
+}
+
+// Mask based on cloudscore
+function maskCloudScore(image) {
+  var qa = image.select('cloudscore');
+
+  var mask = qa.gte(0.8);
+  return image.updateMask(mask)
+      .copyProperties(image, ["system:time_start", "WRS_PATH", "WRS_ROW"]);
+}
+// SOURCE: https://gis.stackexchange.com/questions/280400/
+// cloud-cover-percentage-in-google-earth-engine  
+
+
+// Combine a set of reducers.
+var reducer = ee.Reducer.mean()
+    .combine(ee.Reducer.variance(), null, true)
+    .combine(ee.Reducer.minMax(), null, true)
+    .combine(ee.Reducer.median(), null, true)
+    .combine(ee.Reducer.kurtosis(), null, true)
+    .combine(ee.Reducer.skew(), null, true);
+
+// Function to get features
+var getFeatures = function(feature) {
+  var collectionScene = ee.ImageCollection.fromImages(feature.get('images'));
+  
+  // Calculate number of observations per pixel.
+  var numObs = collectionScene.count().select(0).rename('nobs');
+  
+  // Reduce collection.
+  var composite = collectionScene.select(DEPENDENT.toLowerCase()).reduce(reducer)
+    .rename(['mean', 'variance', 'min', 'max', 'median', 'kurtosis', 'skew']);
+  
+  // Combine feature sets
+  var features = composite
+    .addBands(numObs);
+  
+  return features;
+};
+
+// Function to calculate range from min/min
+var addRange = function(image) {
+  var range = image.select('max').subtract(image.select('min')).rename('range');
+  return image.addBands(range);
+};
+
+
+// --------------------------------------------------------------------- 
+// SIMPLIFY REGION OF INTEREST & EXPORT
+// ---------------------------------------------------------------------
+
+if(ROI_EXPORT == 1) {
+  
+  // Get state boundaries from TIGER dataset
+  var roi = ee.FeatureCollection(states)
+    .filterMetadata('NAME', 'equals', STATE_NAME);
+
+  // Simplify polygon 
+  var bounds_geo = roi.geometry()
+    .dissolve()
+    .simplify(1000);
+  
+  bounds_geo = ee.Feature(bounds_geo);
+    
+  // // Export to Asset
+  Export.table.toAsset({
+    collection: bounds_geo,
+    description: STATE_NAME + '_simplified',
+    assetId: STATE_NAME + '_simplified',
+
+  });
+}
+
+// --------------------------------------------------------------------- 
+// CREATE TC COMPONENTS FROM LANDSAT IMAGERY & EXPORT 
+// ---------------------------------------------------------------------
+
+// Export annual spectral-temporal feature sets
+if(FEATURES_EXPORT == 1) {
+
+  // Generate tasks for annual feature set exports
+  for(var YEAR = START_YEAR; YEAR < END_YEAR+1; YEAR++){
+  
+    // Set up dictionary of output properties.
+    var outputProperties = ee.Dictionary({
+          'system:time_start': ee.Date(YEAR+'-01-01').millis(),
+          'spectral_band': DEPENDENT,
+          'year': YEAR,
+          'output_multiplier': ee.Number(1).divide(MULTIPLIER)
+      });
+    
+    // Get all Landsat 5 imagery.
+    var collection5 = ee.ImageCollection('LANDSAT/LT05/C01/T1_SR')
+      .filterBounds(bounds_geo)
+      .filterDate(1985 + '-01-01', 2011 + '-10-31')  // Landsat 5 fails Nov. 2011
+      .filterDate(YEAR + '-01-01', YEAR + '-12-31') // WINDOW
+      .filter(ee.Filter.lt('CLOUD_COVER_LAND', 80))
+      .map(preprocess457); 
+    
+    // Get Landsat 7 imagery to fill gap period between 5 and 8.
+    var collection7 = ee.ImageCollection('LANDSAT/LE07/C01/T1_SR')
+      .filterBounds(bounds_geo)
+      .filterDate(2011 + '-11-01', 2013 + '-04-10') // Use Landsat 7 only when 5/8 not avail.
+      .filterDate(YEAR + '-01-01', YEAR + '-12-31') // WINDOW
+      .filter(ee.Filter.lt('CLOUD_COVER_LAND', 80))
+      .map(preprocess457);
+    
+    // Get all Landsat 8 imagery.
+    var collection8 = ee.ImageCollection('LANDSAT/LC08/C01/T1_SR')
+      .filterBounds(bounds_geo)
+      .filterDate(2013 + '-04-11', 2020 + '-12-31') // Landsat 8 achieves WRS-2 April 11, 2013
+      .filterDate(YEAR + '-01-01', YEAR + '-12-31') // WINDOW
+      .map(preprocess8);
+    
+    // Merge pre-processed Landsat 5, 7 and 8 collections.
+    var collection = collection5.merge(collection7).merge(collection8)
+      .map(addCloudScore)
+      .map(maskCloudScore) // mask based on simple cloud score
+      .map(spectralTransforms);
+    
+    // Get WRS2 Scene boundaries .
+    var scenes = wrs2.filterBounds(bounds_geo);
+    
+    // Join images by Scene (Path/Row).
+    var join = ee.Join.saveAll('images', 'system:time_start', true);
+    
+    var collections = join.apply({
+    primary: scenes, 
+    secondary: collection, 
+    condition: ee.Filter.and(
+      ee.Filter.equals({
+        leftField: 'PATH', 
+        rightField: 'WRS_PATH'
+      }), ee.Filter.equals({
+        leftField: 'ROW', 
+        rightField: 'WRS_ROW'
+      })
+    )
+    });
+    
+    // Map feature  over scene collection and mosaic 
+    
+    var outputFull = ee.ImageCollection(collections.map(getFeatures)).map(addRange);
+    var output = outputFull.qualityMosaic('nobs')
+      .clip(bounds_geo); 
+    
+    // Convert all bands to Int using multiplier
+    var outputInt = output.multiply(MULTIPLIER).toInt()
+        .setMulti(outputProperties);
+    
+    // Generate output name
+    var descrip = STATE_NAME + '_' + DEPENDENT + '_' + YEAR;
+    
+    // Export to Asset
+    Export.image.toAsset({
+      image: outputInt,
+      description: DEPENDENT + '_' + YEAR,
+      assetId: descrip,
+      region: outputInt.geometry(),
+      // crs: 'EPSG:5070',
+      scale: 30,
+      maxPixels: 1e13,
+    });
+  
+  } // close year loop
+}
+
+// --------------------------------------------------------------------- 
+// FILTER BEAVER OBSERVATIONS BY STATE & EXPORT
+// ---------------------------------------------------------------------
+
+if(BEAVER_EXPORT == 1) {
+  
+  //Filter data from table for MA 
+  var filteredBeaver = ee.FeatureCollection(BEAVER_OBS)
+    .filterMetadata('stateProvince', 'equals', STATE_NAME);
+    //.copyProperties(BEAVER_OBS);
+
+  Map.addLayer(filteredBeaver, {color: 'red'}, "Beaver Observations");
+  
+  // Export to Asset
+  Export.table.toAsset({
+    collection: filteredBeaver,
+    description: STATE_NAME + '_beaver_observations',
+    assetId: STATE_NAME + '_beaver_observations',
+
+  });
+}
+
+
+// --------------------------------------------------------------------- 
+// SIMPLIFY WETLANDS POLYGON & EXPORT
+// ---------------------------------------------------------------------
+
+// Export rasterized wetlands layer
+if(WETLANDS_EXPORT == 1) {
+  var wetlands = WETLANDS
+    .reduceToImage({
+      properties: ['WETCODE'],
+      reducer: ee.Reducer.first()
+  });
+
+  // Export to Asset
+  Export.image.toAsset({
+    image: wetlands,
+    description: STATE_NAME + '_wetland_mask',
+    assetId: STATE_NAME + '_wetland_mask',
+    region: bounds_geo.bounds(),
+    // crs: 'EPSG:5070',
+    scale: 30,
+    maxPixels: 1e13,
+  });
+}
+
+
+
+
