@@ -86,8 +86,8 @@ The change is exporting the results to feature collections use if statements.
 // ---------------------------------------------------------------------
 
 // Toggle numbers to export assets
-var TC_NM_EXPORT = 0;  // if = 1, generate export task(s)
-var TC_WM_EXPORT = 0;
+var TC_NM_EXPORT = 1;  // if = 1, generate export task(s)
+var TC_WM_EXPORT = 1;
 
 // Variables used for naming exports
 var DEPENDENT_NM = 'Flooding_nm'; 
@@ -96,7 +96,7 @@ var STATE_NAME = 'Massachusetts';
 
 // Import data
 // data obtained from MASS GIS wetlands layer
-var WETLAND_MASK = ee.Image("projects/ee-valeriepasquarella/assets/Massachusetts_wetland_mask");  
+var WETLAND_MASK = ee.Image("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/Massachusetts_wetland_mask");  
 // this collection was generated using 1_B-FED_preprocessing_v2
 var TCB_IC = ee.ImageCollection('users/Ahmed94/TCB_1985_2019_ICollection');  
 var TCG_IC = ee.ImageCollection('users/Ahmed94/TCG_1985_2019_ICollection');
@@ -308,14 +308,4 @@ if(TC_WM_EXPORT == 1) {
   
   } // close year loop
 }  
-
-
-
-
-
-
-
-
-
-
 
