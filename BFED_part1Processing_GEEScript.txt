@@ -87,12 +87,14 @@ E-mail address: Ahmedbaqai1994@gmail.com
 // ---------------------------------------------------------------------
 
 // Upload beaver observations from GBIF
-var BEAVER_OBS = ee.FeatureCollection('users/liana_stachowicz/global_beaver_observations');
-// Upload wetlands polygon layer from MassGIS
-var WETLANDS = ee.FeatureCollection('users/rlwcomposto/wetlands_ma_poly');
 
-var wrs2 = ee.FeatureCollection("projects/google/wrs2_descending");
-var states = ee.FeatureCollection("TIGER/2018/States");
+var BEAVER_OBS = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/Global_Beaver_Obs2");
+// Upload wetlands polygon layer from MassGIS
+var WETLANDS = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/wetlands_ma_poly");
+
+
+var wrs2 = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/wrs2_descending");
+var states = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/States");
 
 
 // --------------------------------------------------------------------- 
@@ -119,6 +121,13 @@ var L457_BANDS = ['B1', 'B2', 'B3', 'B4',  'B5',  'B7', 'B6']; // Landsat TM/ETM
 var LTS_NAMES = ['blue', 'green', 'red', 'nir', 'swir1', 'swir2', 'temp']; // Common names
 
 var MULTIPLIER = 10000; // To convert to int
+// ROI for analysis
+var roi = ee.FeatureCollection(states)
+    .filterMetadata('NAME', 'equals', STATE_NAME);
+// Simplify polygon 
+var bounds_geo = roi.geometry()
+  .dissolve()
+  .simplify(1000);
 
 // --------------------------------------------------------------------- 
 // FUNCTIONS
@@ -407,7 +416,7 @@ if(BEAVER_EXPORT == 1) {
   
   //Filter data from table for MA 
   var filteredBeaver = ee.FeatureCollection(BEAVER_OBS)
-    .filterMetadata('stateProvince', 'equals', STATE_NAME);
+    .filterMetadata('stateProvi', 'equals', STATE_NAME);
     //.copyProperties(BEAVER_OBS);
 
   Map.addLayer(filteredBeaver, {color: 'red'}, "Beaver Observations");
@@ -445,6 +454,10 @@ if(WETLANDS_EXPORT == 1) {
     maxPixels: 1e13,
   });
 }
+
+
+
+
 
 
 
