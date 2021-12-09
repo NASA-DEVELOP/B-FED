@@ -95,17 +95,17 @@ var TCG_IC = ee.ImageCollection('users/Ahmed94/TCG_1985_2019_ICollection');
 // this feature collection doesn't contain year the beavers were seen
 var BEAVER_OBS_VP = ee.FeatureCollection("projects/ee-valeriepasquarella/assets/Massachusetts_beaver_observations");
 // this feature collection does contain the year that the beavers were either seen
-var BEAVER_OBS_ALL = ee.FeatureCollection("users/liana_stachowicz/global_beaver_observations");  
-var BEAVER_OBS = BEAVER_OBS_ALL.filterMetadata('stateProvince', 'equals', 'Massachusetts');
+var BEAVER_OBS_ALL  = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/Global_Beaver_Obs2"); 
+var BEAVER_OBS = BEAVER_OBS_ALL.filterMetadata('stateProvi', 'equals', 'Massachusetts');
 
 // Data obtained from MassGIS
-var WETLAND_MASK = ee.Image("projects/ee-valeriepasquarella/assets/Massachusetts_wetland_mask");  
+var WETLAND_MASK = ee.Image("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/Massachusetts_wetland_mask");  
 
 // Massachusetts simplified (1000) with a buffer (5000m)
-var ROI = ee.FeatureCollection("users/rlwcomposto/simplifiedMA");  
+var ROI = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/simplifiedMA");  
 
 // Data obtained from MassGIS, includes all properties that MAS owns
-var MAS_Sanctuaries = ee.FeatureCollection("users/rlwcomposto/Mass_Audubon_Shp");
+var MAS_Sanctuaries = ee.FeatureCollection("users/DEVELOP_Geoinformatics/NASA_DEVELOP_Codes/NASA_DEVELOP_Spring2020/MA_MassachusettsWater_BFED/Mass_Audubon_Shp");
 
 // To add additional Sanctuaries, copy the line below and change the name of the sanctuary
 var Ipswich = MAS_Sanctuaries.filter(ee.Filter.eq('SITE_NAME', 'Ipswich River Wildlife Sanctuary'));
@@ -270,7 +270,7 @@ var tcgChart = ui.Chart.image.series(tcgFloat.select(['min', 'max'])  // Change 
                   pointSize: 2,
                   lineWidth: 2
                 }); 
-//print(tcgChart);
+// print(tcgChart);
 
 // TCB Chart on flooded pixels in case study area
 var tcbChart = ui.Chart.image.series(tcbFloat.select("mean")  // Change TCB calculation
@@ -285,7 +285,7 @@ var tcbChart = ui.Chart.image.series(tcbFloat.select("mean")  // Change TCB calc
                   pointSize: 2,
                   lineWidth: 2
 }); 
-//print(tcbChart);
+// print(tcbChart);
 
 
 
@@ -705,16 +705,12 @@ var timeMAL = comTextMA.map(function(img) {
 // Display animations
 // Uncomment print statements (X to Y) to print gifs in the Console
 
-//print(ui.Thumbnail(timeIpsS, videoArgsIpswich)); //works
-//print(timeIps.getFilmstripThumbURL(videoArgsIpswich));
-//print("Ipswich Timeseries: " + timeIpsS.getVideoThumbURL(videoArgsIpswich));
-//print(ui.Thumbnail(timeWaS, videoArgsWachusett));
-//print("Wachusett Timeseries: " + timeWaS.getVideoThumbURL(videoArgsWachusett));
-//print(ui.Thumbnail(timeBroS, videoArgsBroadmoor));
-//print("Broadmoor Timeseries: " + timeBroS.getVideoThumbURL(videoArgsBroadmoor));
-//print(ui.Thumbnail(timeMAS, videoArgsMA));
-//print("MA Timeseries: " + timeMA.getVideoThumbURL(videoArgsMA));
-
-
-
-
+// print(ui.Thumbnail(timeIpsS, videoArgsIpswich)); //works
+// print(timeIpsS.getFilmstripThumbURL(videoArgsIpswich));
+// print("Ipswich Timeseries: " + timeIpsS.getVideoThumbURL(videoArgsIpswich));
+// print(ui.Thumbnail(timeWaS, videoArgsWachusett));
+// print("Wachusett Timeseries: " + timeWaS.getVideoThumbURL(videoArgsWachusett));
+// print(ui.Thumbnail(timeBroS, videoArgsBroadmoor));
+// print("Broadmoor Timeseries: " + timeBroS.getVideoThumbURL(videoArgsBroadmoor));
+// print(ui.Thumbnail(timeMAS, videoArgsMA));
+// print("MA Timeseries: " + timeMAS.getVideoThumbURL(videoArgsMA));
