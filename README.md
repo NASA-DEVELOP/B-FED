@@ -15,4 +15,8 @@ statements to determine for a given year if flooding, based on spectral signatur
 by beavers has occurred. This is then filtered for a wetland layer and then inlaid with citizen 
 science data of beaver observations from GBIF. The correlation of having flooding, 
 along with reported beaver observations acts as a validation for the tool. B-FED is divided into 
-three scripts.
+three scripts: preprocessing, analysis, and visualization.
+
+Preprocessing Link: https://code.earthengine.google.com/1a3e416709e858d565b4ff2cbcb0bf8c <br>
+Analysis Link: https://code.earthengine.google.com/ff42c860b62782bfd00a6b2f37ef9141 <br>
+Visualization Link: https://code.earthengine.google.com/5bf3a56912f21cdd75ffcda0755237ea
